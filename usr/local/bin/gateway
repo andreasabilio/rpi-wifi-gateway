@@ -1,0 +1,42 @@
+#!/bin/bash
+
+TYPE="$1"
+SSID="$2"
+KEY="$3"
+
+
+# Verify type
+if [ -z "$TYPE" ]; then
+        echo "[ GW ] You must provide a gateway type"
+        exit 1
+fi
+
+# Determine gateway type
+case "$TYPE" in
+
+"wifi")
+        # Verify wifi params
+        if [ -z "$SSID" ]; then
+                echo "[ GW ] You must provide wifi SSID"
+                exit 1
+        fi
+        
+        # Start the wifi gateway
+        echo "[ GW ] Creating wifi gateway..."
+        gateway-wifi "$SSID" "$KEY"
+        
+        ;;
+
+"ethernet")
+        echo "[ GW ] Creating ethernet gateway..."
+        #gateway-ethernet
+        
+        ;;
+
+*)
+        echo "[ GW ] Gateway type not provided: You must provide a gateway type!"
+        exit 1
+esac
+
+# Done
+exit 0

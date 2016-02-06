@@ -1,0 +1,79 @@
+#!/bin/bash
+
+
+# Script vars
+DONGLE="$(lsusb | grep AR9271)"
+GATEWAY_FILE="/var/wifi/gateway"
+
+WAP_NIC="wap0"
+WIFI_NIC="wlan0"
+
+AP_MAC="64:70:02:0d:07:60"
+AP_IP="10.10.0.1"
+
+
+# Start and stop cases
+case "$1" in
+        start)
+                echo "[ AP ] Starting wifi hotspot..."
+
+                # Verify we have the USB wifi dongle
+                if [ -z "${DONGLE}" ]; then
+                        echo "> Wifi dongle not present: Aborting"
+                        exit 0
+                fi
+
+                # Deactivate possible wlan0 interface
+                ifconfig "$WIFI_NIC" down
+                sleep 2
+
+                # Create virtula interface wap0
+                iw phy phy0 interface add "$WAP_NIC" type __ap
+                sleep 6
+
+                # Set MAC address
+                ifconfig "$WAP_NIC" hw ether "$AP_MAC"
+                sleep 6
+                
+                # Set wap0 IP address
+                ifconfig "$WAP_NIC" "$AP_IP" up
+                sleep 2
+
+                # Start access point
+                hostapd -B /etc/hostapd/hostapd.conf &
+                sleep 6
+
+                # Start DHCP server for wap0
+                service isc-dhcp-server start
+
+                # Message
+                echo "[ AP ] Wifi hotspot is up."
+                ;;
+
+        stop)
+                echo "[ AP ] Stopping wifi hotspot..."
+
+                # Stop wap0 interface
+		ifconfig "$WAP_NIC" down
+
+                # Destroy virtual interface wap0
+                iw dev "$WAP_NIC" del
+
+                # Kill hostapd
+                killall hostapd
+                sleep 2
+
+                # Stop DHCP server
+                service isc-dhcp-server stop
+                ;;
+
+        *)
+                echo "Usage: hotspot {start|stop}"
+                exit 1
+                ;;
+
+esac
+
+exit 0
+
+

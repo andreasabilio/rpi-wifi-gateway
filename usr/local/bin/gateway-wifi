@@ -1,0 +1,116 @@
+#!/bin/bash
+
+SSID="$1"
+KEY="$2"
+
+WCL="wcl0"
+WCL_NIC="$(ifconfig | grep wcl0)"
+
+WAP="wap0"
+CONF_PATH="/etc/wpa_supplicant/config.d"
+
+
+# Verify params
+if [ -z "$SSID" ]; then
+        echo "> You must set a SSID"
+        exit 1
+fi
+
+
+# Network configuration ############################################################################
+
+# Set config file full path
+WPA_CONF="$CONF_PATH/$SSID.conf"
+
+# Verify wheter config file exists
+if [ ! -e "$WPA_CONF" ]; then
+
+        # Verify we got  a WPA KEY
+        if [ -z "$KEY" ]; then
+                echo "[ GW ] This is a new SSID: You must provide a WPA KEY!"
+                exit 1
+        fi
+
+        # Create the new config
+        echo "ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev" > "$WPA_CONF"
+        echo "update_config=1" >> "$WPA_CONF"
+        wpa_passphrase "$SSID" "$KEY" >> "$WPA_CONF"
+        echo "[ GW ] Config for $SSID written to $WPA_CONF"
+        sleep 2
+fi
+
+
+# AP update ########################################################################################
+
+# Lift wlan0 for scan
+ifconfig wlan0 up
+
+# Obtain gateway channel && currently configured channel
+CHANNEL="$(iwlist wlan0 scanning | grep $SSID -B 4 | grep 'Channel:' | sed s/Channel:/channel=/ | sed 's/^[[:space:]]*//')"
+CUR_CH="$(cat /etc/hostapd/hostapd.conf | grep channel)"
+sleep 4
+
+# Done scanning, put wlan0 down
+ifconfig wlan0 down
+
+# XXX
+echo "$CHANNEL";
+
+# Verify given SSID exists
+if [ -z "${CHANNEL}" ]; then
+        echo "[ GW ] SSID $SSID does not exist: Aborting"
+        exit 0
+fi
+
+# Change AP channel?
+if [ "$CHANNEL" != "$CUR_CH" ]; then
+
+        # Kill the hotspot
+        service wifi-hotspot stop
+        sleep 2
+
+        # Create new AP config
+        echo "$CHANNEL" > /etc/hostapd/hostapd.conf
+        cat /etc/hostapd/ap_base.conf >> /etc/hostapd/hostapd.conf
+
+        # Start the hotspot
+        echo "[ GW ] Waiting for hotspot to start..."
+        service wifi-hotspot start
+        sleep 20
+fi
+
+
+# Interface configuration ##########################################################################
+
+# Create virtual interface
+echo "[ GW ] Creating interface $WCL..."
+iw phy phy0 interface add "$WCL" type station
+sleep 2
+
+# Configure the virtual interface
+ifconfig "$WCL" hw ether 64:70:02:0d:07:59
+
+
+# Network connection ###############################################################################
+
+# Connect to provided SSID
+echo "[ GW ] Connecting to $SSID"
+wpa_supplicant -i"$WCL" -c"$WPA_CONF" -Dnl80211 &
+sleep 10
+
+# Start DHCP client on virtual interface
+dhclient "$WCL"
+
+
+# Setup NAT routing ################################################################################
+
+echo "1" > /proc/sys/net/ipv4/ip_forward
+iptables --table nat --append POSTROUTING --out-interface "$WCL" -j MASQUERADE
+iptables --append FORWARD --in-interface "$WAP" -j ACCEPT
+
+
+# Message
+echo "[ GW ] Connected to $SSID with NAT"
+
+# Done
+exit 0
