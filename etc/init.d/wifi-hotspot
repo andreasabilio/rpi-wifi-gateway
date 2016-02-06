@@ -1,0 +1,86 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides:          wifi-hotspot
+# Required-Start:    $all
+# Required-Stop:     $local_fs $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Wifi hotspot
+# Description:       Provides a wifi hotspot which can be routed to another wifi network or ethernet
+### END INIT INFO
+
+
+# Script vars
+DONGLE="$(lsusb | grep AR9271)"
+AP_CONF="/etc/hostapd/hostapd.conf"
+
+WAP_NIC="wap0"
+WIFI_NIC="wlan0"
+
+AP_MAC="64:70:02:0d:07:60"
+AP_IP="10.10.0.1"
+
+
+# Carry out specific functions when asked to by the system
+case "$1" in
+  start)
+    echo "[ AP ] Starting wifi-hotspot..."
+
+    # Verify we have the USB wifi dongle
+	if [ -z "${DONGLE}" ]; then
+		echo "> Wifi dongle not present: Aborting"
+		exit 0
+	fi
+
+	# Deactivate possible wlan0 interface
+	ifconfig "$WIFI_NIC" down
+	sleep 2
+
+	# Create virtula interface wap0
+	iw phy phy0 interface add "$WAP_NIC" type __ap
+	sleep 2
+
+	# Configura wap0
+	ifconfig "$WAP_NIC" hw ether "$AP_MAC"
+	sleep 2
+
+	# Start access point
+	hostapd -B "$AP_CONF" &
+	sleep 6
+
+	# Set IP and start wap0
+	ifconfig "$WAP_NIC" "$AP_IP" up
+	sleep 2
+
+	# Start DHCP server for wap0
+	service isc-dhcp-server start
+
+	# Message
+    echo "[ AP ] Wifi hotspot is up."
+    ;;
+
+  stop)
+    echo "[ AP ] Stopping wifi-hotspot..."
+
+    # Stop DHCP server
+    service isc-dhcp-server stop
+
+    # Stop wap0 interface
+    ifconfig "$WAP_NIC" down
+
+    # Destroy virtual interface wap0
+    iw dev "$WAP_NIC" del
+
+    # Kill hostapd
+    killall hostapd
+    ;;
+
+  *)
+    echo "Usage: /etc/init.d/wifi-hotspot {start|stop}"
+    exit 1
+    ;;
+
+esac
+
+exit 0
